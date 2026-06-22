@@ -16,8 +16,40 @@ const morgan = require('morgan')
 const cookieParser = require('cookie-parser')
 const rateLimit = require('express-rate-limit')
 const multer = require('multer')
-const { CloudinaryStorage } = require('multer-storage-cloudinary')
 const cloudinary = require('cloudinary').v2
+
+// Custom multer storage engine — compatible with cloudinary v2, no extra packages needed
+function makeCloudinaryStorage(opts) {
+  return {
+    _handleFile(req, file, cb) {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: opts.folder,
+          allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+          transformation: opts.transformation || [],
+        },
+        (error, result) => {
+          if (error) return cb(error)
+          cb(null, {
+            fieldname: file.fieldname,
+            originalname: file.originalname,
+            path: result.secure_url,
+            filename: result.public_id,
+            size: result.bytes,
+          })
+        }
+      )
+      file.stream.pipe(uploadStream)
+    },
+    _removeFile(req, file, cb) {
+      if (file.filename) {
+        cloudinary.uploader.destroy(file.filename, cb)
+      } else {
+        cb(null)
+      }
+    },
+  }
+}
 const mongoose = require('mongoose')
 const jwt = require('jsonwebtoken')
 const path = require('path')
@@ -86,31 +118,19 @@ const fileFilter = (req, file, cb) => {
   }
 }
 
-const projectStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: 'portfolio/projects',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [{ width: 1200, height: 675, crop: 'fill', quality: 'auto:good' }],
-  },
+const projectStorage = makeCloudinaryStorage({
+  folder: 'portfolio/projects',
+  transformation: [{ width: 1200, height: 675, crop: 'fill', quality: 'auto:good' }],
 })
 
-const blogStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: 'portfolio/blog',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [{ width: 1200, height: 630, crop: 'fill', quality: 'auto:good' }],
-  },
+const blogStorage = makeCloudinaryStorage({
+  folder: 'portfolio/blog',
+  transformation: [{ width: 1200, height: 630, crop: 'fill', quality: 'auto:good' }],
 })
 
-const avatarStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: 'portfolio/avatars',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face', quality: 'auto' }],
-  },
+const avatarStorage = makeCloudinaryStorage({
+  folder: 'portfolio/avatars',
+  transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face', quality: 'auto' }],
 })
 
 const uploadProjectImage = multer({ storage: projectStorage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } })
