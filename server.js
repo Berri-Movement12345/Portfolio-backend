@@ -28,10 +28,19 @@ const fs = require('fs')
 // ═════════════════════════════════════════════════════════════════════════
 
 const PORT = process.env.PORT || 5000
+const HOST = process.env.HOST || '0.0.0.0'
 const NODE_ENV = process.env.NODE_ENV || 'development'
 const JWT_SECRET = process.env.JWT_SECRET || 'mixzy_fallback_secret_2026_change_in_prod'
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/portfolio'
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+
+// CORS allowed origins — supports localhost + LAN IP for cross-device dev testing
+const ALLOWED_ORIGINS = [
+  process.env.FRONTEND_URL || 'http://localhost:5173',
+  process.env.FRONTEND_URL_LAN || null,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  `http://10.80.194.33:5173`,
+].filter(Boolean)
 
 const app = express()
 
@@ -237,9 +246,18 @@ connectDB()
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }))
 app.use(cors({
-  origin: FRONTEND_URL,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g., curl, Postman, mobile apps)
+    if (!origin) return callback(null, true)
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true)
+    }
+    console.warn(`[CORS] Blocked request from origin: ${origin}`)
+    return callback(new Error(`CORS: Origin '${origin}' not allowed`))
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }))
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -374,12 +392,20 @@ app.use(errorHandler)
 // ────────────────────── START SERVER ────────────────────────────────────
 // ═════════════════════════════════════════════════════════════════════════
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, HOST, () => {
+  const os = require('os')
+  const nets = os.networkInterfaces()
+  const lanIP = Object.values(nets).flat().find(
+    (n) => n.family === 'IPv4' && !n.internal
+  )?.address || HOST
+
   console.log(`\n${'═'.repeat(60)}`)
   console.log(`🚀 Server running in ${NODE_ENV.toUpperCase()} mode`)
-  console.log(`📡 Port: ${PORT}`)
-  console.log(`🔗 API URL: http://localhost:${PORT}/api`)
-  console.log(`📊 Health Check: http://localhost:${PORT}/api/health`)
+  console.log(`📡 Port: ${PORT} | Bound to: ${HOST}`)
+  console.log(`🔗 Local URL:  http://localhost:${PORT}/api`)
+  console.log(`📱 LAN URL:    http://${lanIP}:${PORT}/api`)
+  console.log(`📊 Health Check: http://${lanIP}:${PORT}/api/health`)
+  console.log(`🌐 CORS allowed origins: ${ALLOWED_ORIGINS.join(', ')}`)
   console.log(`${'═'.repeat(60)}\n`)
 })
 
